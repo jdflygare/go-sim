@@ -8,25 +8,28 @@ import (
 	"time"
 )
 
-// All densities are number densities
-// All energies are in eV
+// All SI units.  The genesis of every value is in SI units
+// All densities are number densities m^-3
+// Unit conversion only occur after computation
 // Global constants
 const (
 	AvogadroNumber = 6.02214076e23     // Avogadro's number
-	AMUtoG         = 1.66053906660e-24 // Conversion factor from AMU to g
-	DeuteriumMass  = 2.014 * AMUtoG    // masses are in g
-	TitaniumMass   = 47.867 * AMUtoG
-	TritiumMass    = 3.016 * AMUtoG
-	HydrogenMass   = 1.008 * AMUtoG
-	MeVtoEV        = 1.0e6                // Conversion from MeV to eV
-	electronMass   = 0.00054858           // Electron mass in amu
-	K              = 0.307                // MeV cm^2/g
-	I              = 16.0 * 1.0e-6        // Mean excitation potential in eV (typical value for materials, to be adjusted based on material)
-	speedOfLight   = 3.0e8                // Speed of light in m/s
-	eps0           = 8.8541878e-12        // Permittivity constant
+	AMUtoKG        = 1.66053906660e-27 // Conversion factor from AMU to kg
+	eVtoJ          = 1.602e-19         // Conversion from eV to J
+	JtoeV          = 1 / eVtoJ         // Convertion from J to eV
+	DeuteriumMass  = 2.014 * AMUtoKG   // masses are in kg
+	TitaniumMass   = 47.867 * AMUtoKG
+	TritiumMass    = 3.016 * AMUtoKG
+	HydrogenMass   = 1.008 * AMUtoKG
+	electronMass   = 0.00054858 * AMUtoKG // Electron mass in amu
+	I              = 16.0 * eVtoJ         // Mean excitation potential in eV
+	speedOfLight   = 2.997e8              // Speed of light in m/s
+	eps0           = 8.8541878e-12        // Permittivity constant F/m
 	electronCharge = 1.602e-19            // Coulombs
 	kCoulomb       = 8.9875517873681764e9 // Coulomb's constant in N·m²/C²
 	pi             = 3.141592653589793
+	kc             = 2.30709e-28 // ec^2/(4 pi e0) in Joule Meter
+	threshold      = 500 * eVtoJ // cutoff in J
 )
 
 type Atom struct {
@@ -53,11 +56,11 @@ type Particle struct {
 func initializeMaterial() *Material {
 	return &Material{
 		atoms: []Atom{
-			{name: "deuterium", density: 5.67e22, Z: 1, A: 2, m: 2.014 * AMUtoG},
-			{name: "titanium", density: 5.67e22, Z: 22, A: 48, m: 47.867 * AMUtoG},
-			{name: "tritium", density: 0.0, Z: 1, A: 3, m: 3.016 * AMUtoG},
-			{name: "hydrogen", density: 0.0, Z: 1, A: 1, m: 1.008 * AMUtoG},
-			{name: "helium3", density: 0.0, Z: 2, A: 3, m: 3.016 * AMUtoG},
+			{name: "deuterium", density: 5.67e28, Z: 1, A: 2, m: 2.014 * AMUtoKG},
+			{name: "titanium", density: 5.67e28, Z: 22, A: 48, m: 47.867 * AMUtoKG},
+			{name: "tritium", density: 0.0, Z: 1, A: 3, m: 3.016 * AMUtoKG},
+			{name: "hydrogen", density: 0.0, Z: 1, A: 1, m: 1.008 * AMUtoKG},
+			{name: "helium3", density: 0.0, Z: 2, A: 3, m: 3.016 * AMUtoKG},
 		},
 	}
 }
@@ -65,7 +68,7 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 2000.0, Z: 1, m: DeuteriumMass, scattering_events: 0}
+		particles[i] = &Particle{position: 0.0, energy: 2000.0 * eVtoJ, Z: 1, m: DeuteriumMass, scattering_events: 0}
 	}
 	return particles
 }
@@ -111,17 +114,34 @@ func computeLosses(particle *Particle, material *Material) float64 {
 		eIz := 0.0
 
 		// Compute Bethe energy losses
+		// ionization potential eIz computed in Joules
 		if atom.Z < 13 {
-			eIz = (12 + (7 / float64(atom.Z))) * float64(atom.Z)
+			eIz = (12 + (7 / float64(atom.Z))) * float64(atom.Z) * eVtoJ
 		} else {
-			eIz = (9.76 + (58.5 * math.Pow(float64(atom.Z), -1.19))) * float64(atom.Z)
+			eIz = (9.76 + (58.5 * math.Pow(float64(atom.Z), -1.19))) * float64(atom.Z) * eVtoJ
 		}
 		logVal := math.Log(4 * particle.energy * electronMass / (particle.m * eIz))
-		deBethe = 2 * pi * float64(particle.Z*particle.Z) * float64(atom.Z) * atom.density * kCoulomb * kCoulomb * (particle.m / electronMass) * logVal / particle.energy
+		deBethe = -2 * pi * float64(particle.Z*particle.Z) * float64(atom.Z) * atom.density * math.Pow(kc, 2) * (particle.m / electronMass) * logVal / particle.energy
+
+		fmt.Printf("energy: %f, dEdx bethe: %f\n", particle.energy*JtoeV, deBethe*JtoeV*1e-9)
 
 		// Compute Lindhardt energy losses
 		k := 3.83 * math.Pow(float64(particle.Z), 7.0/6.0) * float64(atom.Z) * atom.density / (math.Pow(particle.m, 0.5) * math.Pow(math.Pow(float64(particle.Z), 2.0/3.0)+math.Pow(float64(atom.Z), 2.0/3.0), 1.5))
 		deLindhardt = 1e-23 * k * math.Sqrt(particle.energy/1000)
+
+		fmt.Printf("energy: %f, dEdx lin: %f\n", particle.energy/eVtoJ, deLindhardt/eVtoJ*1e-9)
+
+		// Print all values in scientific notation
+		fmt.Printf("particle.energy: %.5e eV\n", particle.energy/eVtoJ)
+		fmt.Printf("electronMass: %.5e kg\n", electronMass)
+		fmt.Printf("deuteron mass: %.5e kg\n", particle.m)
+		fmt.Printf("eIz: %.5e eV\n", eIz*JtoeV)
+		fmt.Printf("logVal: %.5e\n", logVal)
+		fmt.Printf("particle.Z: %d\n", particle.Z)
+		fmt.Printf("atom.Z: %d\n", atom.Z)
+		fmt.Printf("atom.density: %.5e atoms/m³\n", atom.density)
+		fmt.Printf("kCoulomb: %.5e N·m²/C²\n", kCoulomb)
+		fmt.Printf("deBethe: %.5e eV/nm\n\n", deBethe/eVtoJ*1e-9)
 
 		var deComp float64
 		if deBethe > 0 {
@@ -135,7 +155,7 @@ func computeLosses(particle *Particle, material *Material) float64 {
 	return avgLoss
 }
 
-func fusionCrossSection(energy float64, material *Material) float64 {
+func fusionCrossSection(interactionAtom *Atom, energy float64, material *Material) float64 {
 	return 1e-26 * energy
 }
 
@@ -143,12 +163,10 @@ func scatteringCrossSection(interactionAtom *Atom, energy float64, material *Mat
 	return 1e-23 * energy
 }
 
-func meanFreePath(particle *Particle, material *Material) float64 {
+func meanFreePath(scatteringCS float64, fusionCS float64, particle *Particle, material *Material) float64 {
 	totalDensity := totalDensity(material)
-	sigmaf := fusionCrossSection(particle.energy, material)
-	sigmas := scatteringCrossSection(&material.atoms[0], particle.energy, material) // Assuming scattering cross section of the first atom for simplification
 
-	return 1.0 / ((sigmaf + sigmas) * totalDensity)
+	return 1.0 / ((scatteringCS + fusionCS) * totalDensity)
 }
 
 func runSimulation(nParticles int, wg *sync.WaitGroup) {
@@ -166,7 +184,7 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) {
 		go func(particle *Particle, id int) {
 			defer particleWg.Done()
 			//fmt.Printf("Goroutine %d started, particle energy %f\n", id, particle.energy) // Print the start of the goroutine
-			for particle.energy > 0.01 {
+			for particle.energy > threshold {
 
 				// These don't need updated material parameters
 				interactionAtom := chooseInteractionAtom(total_density, material)
@@ -174,7 +192,7 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) {
 
 				// fusion needs updated material parameters
 				material.mutex.Lock()
-				fusionCS := fusionCrossSection(particle.energy, material)
+				fusionCS := fusionCrossSection(&interactionAtom, particle.energy, material)
 
 				// check if fusion or scattering occurs
 				if rand.Float64() < fusionCS/(fusionCS+scatteringCS) {
@@ -200,7 +218,7 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) {
 				material.mutex.Unlock()
 
 				// Compute new location and energy
-				meanPath := meanFreePath(particle, material)
+				meanPath := meanFreePath(scatteringCS, fusionCS, particle, material)
 				losses := computeLosses(particle, material)
 				particle.energy -= losses
 				particle.position += meanPath
@@ -220,7 +238,7 @@ func main() {
 	start := time.Now()
 	rand.Seed(time.Now().UnixNano())
 	var wg sync.WaitGroup
-	nParticles := 1_000_000_0
+	nParticles := 1
 
 	wg.Add(1)
 	go runSimulation(nParticles, &wg)
