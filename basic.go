@@ -120,16 +120,20 @@ func computeLosses(particle *Particle, material *Material) float64 {
 		} else {
 			eIz = (9.76 + (58.5 * math.Pow(float64(atom.Z), -1.19))) * float64(atom.Z) * eVtoJ
 		}
+		// From wikipedia bethe bloch (relativistic)
+		//BetaSq := (math.Pow(particle.energy, 2) + 2*math.Pow(speedOfLight, 2)*particle.energy*particle.m) / math.Pow(particle.energy+math.Pow(speedOfLight, 2)*particle.m, 2)
+		//newBethe := -4 * pi / (electronMass * math.Pow(speedOfLight, 2)) * atom.density * float64(atom.Z) * math.Pow(float64(particle.Z), 2) / BetaSq * math.Pow(kc, 2) * (math.Log(2*electronMass*math.Pow(speedOfLight, 2)*BetaSq/(eIz*(1-BetaSq)) - BetaSq))
+
+		// Bethe bloch From Nastasi 5.38
 		logVal := math.Log(4 * particle.energy * electronMass / (particle.m * eIz))
 		deBethe = -2 * pi * float64(particle.Z*particle.Z) * float64(atom.Z) * atom.density * math.Pow(kc, 2) * (particle.m / electronMass) * logVal / particle.energy
 
-		fmt.Printf("energy: %f, dEdx bethe: %f\n", particle.energy*JtoeV, deBethe*JtoeV*1e-9)
+		// Compute Lindhardt energy losses (comes out in eV/cm, must be converted to J/m)
+		// k comes out dimensionless, but M1 must be in AMU and E1 in keV. Also, the density is converted to cm^3
+		Se := 3.83 * math.Pow(float64(particle.Z), 7.0/6.0) * float64(atom.Z) / math.Pow(math.Pow(float64(particle.Z), 2.0/3.0)+math.Pow(float64(atom.Z), 2.0/3.0), 1.5) * math.Sqrt(particle.energy*(JtoeV/1000)/(particle.m/AMUtoKG))
+		deLindhardt = Se * 1e-15 * atom.density / 1e6 * eVtoJ * 100 //1e-15 is from nastasi, 1e6 is density to cm^3, and eVtoJ*10 is to convert from eV/cm to J/m
 
-		// Compute Lindhardt energy losses
-		k := 3.83 * math.Pow(float64(particle.Z), 7.0/6.0) * float64(atom.Z) * atom.density / (math.Pow(particle.m, 0.5) * math.Pow(math.Pow(float64(particle.Z), 2.0/3.0)+math.Pow(float64(atom.Z), 2.0/3.0), 1.5))
-		deLindhardt = 1e-23 * k * math.Sqrt(particle.energy/1000)
-
-		fmt.Printf("energy: %f, dEdx lin: %f\n", particle.energy/eVtoJ, deLindhardt/eVtoJ*1e-9)
+		fmt.Printf("energy: %f, Se:  %.5e, dEdx lin (J/m): %.5e\n", particle.energy*JtoeV, Se, deLindhardt)
 
 		// Print all values in scientific notation
 		fmt.Printf("particle.energy: %.5e eV\n", particle.energy/eVtoJ)
@@ -151,6 +155,8 @@ func computeLosses(particle *Particle, material *Material) float64 {
 		}
 		avgLoss += atom.density / totalDensity(material) * deComp
 	}
+
+	fmt.Printf("avgLoss: %.5e\n", avgLoss)
 
 	return avgLoss
 }
