@@ -30,6 +30,25 @@ const (
 	pi             = 3.141592653589793
 	kc             = 2.30709e-28 // ec^2/(4 pi e0) in Joule Meter
 	threshold      = 500 * eVtoJ // cutoff in J
+	mbtom2         = 1e-31       // convert millibarn to m^2
+)
+
+// Constants for the Bosch-Hale formulas
+var (
+	A = [][]float64{
+		{69.27, 7.454e5, 2.05e3, 52.002, 0.0},
+		{5750.1, 2.5226, 0.0455, 0.0, 0.0},
+		{55.576, 0.21054, -3.2638e-5, 1.4987e-9, 1.8181e-13},
+		{53.701, 0.33027, -1.2706e-4, 2.9327e-8, -2.515e-12},
+	}
+	B = [][]float64{
+		{63.8, -0.995, 6.981e-5, 1.728e-4, 0.0},
+		{-3.1995e-3, -8.533e-6, 5.9014e-8, 0.0, 0.0},
+		{0.0, 0.0, 0.0, 0.0, 0.0},
+		{0.0, 0.0, 0.0, 0.0, 0.0},
+	}
+	BG       = []float64{34.3827, 68.7508, 31.397, 31.397}
+	Q_values = []float64{17571000, 18354000, 4032000, 3268000}
 )
 
 type Atom struct {
@@ -46,11 +65,13 @@ type Material struct {
 }
 
 type Particle struct {
-	position          float64
-	energy            float64
-	Z                 int
-	m                 float64
-	scattering_events int
+	position         float64
+	energy           float64
+	Z                int
+	A                int
+	m                float64
+	scatteringEvents int
+	fusionReaction   int
 }
 
 func initializeMaterial() *Material {
@@ -68,7 +89,7 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 2000.0 * eVtoJ, Z: 1, m: DeuteriumMass, scattering_events: 0}
+		particles[i] = &Particle{position: 0.0, energy: 10000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1}
 	}
 	return particles
 }
@@ -133,20 +154,7 @@ func computeLosses(particle *Particle, material *Material) float64 {
 		Se := 3.83 * math.Pow(float64(particle.Z), 7.0/6.0) * float64(atom.Z) / math.Pow(math.Pow(float64(particle.Z), 2.0/3.0)+math.Pow(float64(atom.Z), 2.0/3.0), 1.5) * math.Sqrt(particle.energy*(JtoeV/1000)/(particle.m/AMUtoKG))
 		deLindhardt = Se * 1e-15 * atom.density / 1e6 * eVtoJ * 100 //1e-15 is from nastasi, 1e6 is density to cm^3, and eVtoJ*10 is to convert from eV/cm to J/m
 
-		fmt.Printf("energy: %f, Se:  %.5e, dEdx lin (J/m): %.5e\n", particle.energy*JtoeV, Se, deLindhardt)
-
-		// Print all values in scientific notation
-		fmt.Printf("particle.energy: %.5e eV\n", particle.energy/eVtoJ)
-		fmt.Printf("electronMass: %.5e kg\n", electronMass)
-		fmt.Printf("deuteron mass: %.5e kg\n", particle.m)
-		fmt.Printf("eIz: %.5e eV\n", eIz*JtoeV)
-		fmt.Printf("logVal: %.5e\n", logVal)
-		fmt.Printf("particle.Z: %d\n", particle.Z)
-		fmt.Printf("atom.Z: %d\n", atom.Z)
-		fmt.Printf("atom.density: %.5e atoms/m³\n", atom.density)
-		fmt.Printf("kCoulomb: %.5e N·m²/C²\n", kCoulomb)
-		fmt.Printf("deBethe: %.5e eV/nm\n\n", deBethe/eVtoJ*1e-9)
-
+		// combine the energy losses for a smooth transition low to high energy
 		var deComp float64
 		if deBethe > 0 {
 			deComp = deLindhardt * deBethe / (deLindhardt + deBethe)
@@ -156,17 +164,74 @@ func computeLosses(particle *Particle, material *Material) float64 {
 		avgLoss += atom.density / totalDensity(material) * deComp
 	}
 
-	fmt.Printf("avgLoss: %.5e\n", avgLoss)
+	//fmt.Printf("ep: %.5e, avgLoss: %.5e\n", particle.energy, avgLoss)
 
 	return avgLoss
 }
 
-func fusionCrossSection(interactionAtom *Atom, energy float64, material *Material) float64 {
-	return 1e-26 * energy
+func chooseReaction(particle *Particle, interactionAtom *Atom) int {
+	// Check if both projectile and target are deuterium
+	if particle.Z == 1 && particle.A == 2 && interactionAtom.Z == 1 && interactionAtom.A == 2 {
+		// This is a DD reaction. Select between T (reaction 2) and He-3 (reaction 3) branches randomly with equal probability
+		if rand.Intn(2) == 0 {
+			return 2
+		}
+		return 3
+	}
+	// Projectile is deuterium. Check if target is He-3
+	if particle.Z == 1 && particle.A == 2 {
+		if interactionAtom.Z == 2 && interactionAtom.A == 3 {
+			// If it is, select reaction 1
+			return 1
+		}
+		// Check if target is tritium
+		if interactionAtom.Z == 1 && interactionAtom.A == 3 {
+			// If it is, select reaction 0
+			return 0
+		}
+		// If target is other, return 0
+		return 0
+	}
+	// Target is deuterium. Check if projectile is He-3
+	if interactionAtom.Z == 1 && interactionAtom.A == 2 {
+		if particle.Z == 2 && particle.A == 3 {
+			// If it is, select reaction 1
+			return 1
+		}
+		// Check if projectile is tritium
+		if particle.Z == 1 && particle.A == 3 {
+			// If it is, select reaction 0
+			return 0
+		}
+		// If projectile is not tritium or He-3, no fusion will happen
+		return 0
+	}
+	// If neither target nor projectile are deuterium, there are no fusion reaction
+	return 0
+}
+
+func fusionCrossSection(particle *Particle, interactionAtom *Atom, material *Material) float64 {
+	currentReaction := chooseReaction(particle, interactionAtom)
+
+	eKev := particle.energy * JtoeV / 1000
+	dummy1 := 0.0
+	dummy2 := 1.0
+
+	// Calculate the astrophysical factor S
+	for i := 0; i < 4; i++ {
+		dummy1 += A[currentReaction][i] * math.Pow(eKev, float64(i))
+		dummy2 += B[currentReaction][i] * math.Pow(eKev, float64(i+1))
+	}
+	sFus := dummy1 / dummy2
+	particle.fusionReaction = currentReaction
+
+	//fmt.Printf("fusionCS: %.5e", sFus*1e3/math.Exp(BG[currentReaction]/math.Sqrt(eKev)))
+	// Calculate and return the fusion cross-section in millibarn
+	return sFus * 1e3 / math.Exp(BG[currentReaction]/math.Sqrt(eKev)) * mbtom2
 }
 
 func scatteringCrossSection(interactionAtom *Atom, energy float64, material *Material) float64 {
-	return 1e-23 * energy
+	return 2.5e-26
 }
 
 func meanFreePath(scatteringCS float64, fusionCS float64, particle *Particle, material *Material) float64 {
@@ -198,7 +263,7 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) {
 
 				// fusion needs updated material parameters
 				material.mutex.Lock()
-				fusionCS := fusionCrossSection(&interactionAtom, particle.energy, material)
+				fusionCS := fusionCrossSection(particle, &interactionAtom, material)
 
 				// check if fusion or scattering occurs
 				if rand.Float64() < fusionCS/(fusionCS+scatteringCS) {
@@ -219,14 +284,15 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) {
 				} else {
 					// scattering happened
 					//fmt.Printf("scattering happened\n")
-					particle.scattering_events += 1
+					particle.scatteringEvents += 1
 				}
 				material.mutex.Unlock()
 
+				//fmt.Printf("scatCS %.5e, fusCS %.5e\n", scatteringCS, fusionCS)
 				// Compute new location and energy
 				meanPath := meanFreePath(scatteringCS, fusionCS, particle, material)
 				losses := computeLosses(particle, material)
-				particle.energy -= losses
+				particle.energy -= losses * 10e-9
 				particle.position += meanPath
 
 				// Print the particle's state
@@ -244,7 +310,7 @@ func main() {
 	start := time.Now()
 	rand.Seed(time.Now().UnixNano())
 	var wg sync.WaitGroup
-	nParticles := 1
+	nParticles := 1_000_000
 
 	wg.Add(1)
 	go runSimulation(nParticles, &wg)
