@@ -57,14 +57,14 @@ print(str(dEdx(1,Ekin,m0,EB,ne)/qe*1e-9) + ' in eV/nm')
 x=0         #position in mm
 dE = 0.     #energy loss
 dx = 1.e-3  #1mm
-bbf = open('bb_in_water.dat','w')
+#bbf = open('bb_in_water.dat','w')
 while Ekin > 0.:
     string = str(x) + ', ' + str(Ekin/(qe*1e6)) + ', ' + str(dE/(qe*1.e9)/dx) + '\n'
     #print x, Ekin/(qe*1e6), dE/(qe*1.e9)/dx
     #print(string)
-    bbf.write(string)
+    #bbf.write(string)
     dE = dEdx(Z1,Ekin,m0,EB,ne)*dx     #units J/m*dx
     x = x+dx
     Ekin = Ekin - dE
 
-bbf.close()
+#bbf.close()
