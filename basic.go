@@ -83,10 +83,10 @@ func initializeMaterial() *Material {
 	//ti = 5.67e28, pd=6.79e28
 	return &Material{
 		atoms: []Atom{
-			{name: "deuterium", density: 0, Z: 1, A: 2, m: 2.014 * AMUtoKG},
+			{name: "deuterium", density: 6.79e28, Z: 1, A: 2, m: 2.014 * AMUtoKG},
 			{name: "titanium", density: 0, Z: 22, A: 48, m: 47.867 * AMUtoKG},
 			{name: "palladium", density: 6.79e28, Z: 46, A: 106, m: 106.42 * AMUtoKG},
-			{name: "tritium", density: 6.79e28, Z: 1, A: 3, m: 3.016 * AMUtoKG},
+			{name: "tritium", density: 0, Z: 1, A: 3, m: 3.016 * AMUtoKG},
 			{name: "hydrogen", density: 0.0, Z: 1, A: 1, m: 1.008 * AMUtoKG},
 			{name: "helium3", density: 0.0, Z: 2, A: 3, m: 3.016 * AMUtoKG},
 		},
@@ -96,7 +96,7 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1}
+		particles[i] = &Particle{position: 0.0, energy: 15000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1}
 	}
 	return particles
 }
@@ -114,7 +114,9 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 		log.Fatal(err)
 	}
 
-	lt := NewLookupTable(scatData, 1, 2)
+	fmt.Print("Initializing lookup table\n")
+	ltPd := NewLookupTable(scatData, 1, 2)
+	ltD := NewLookupTable(scatData, 3, 4)
 	//fmt.Print(lt)
 
 	fusions := 0
@@ -125,7 +127,7 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 	for i := 0; i < nParticles; i++ {
 		go func(particle *Particle, id int) {
 			defer particleWg.Done()
-			//fmt.Printf("Goroutine %d started, particle energy %f\n", id, particle.energy) // Print the start of the goroutine
+			//fmt.Printf("Goroutine %d started, particle energy %0.5e\n", id, particle.energy*JtoeV/1000) // Print the start of the goroutine
 			for particle.energy > threshold {
 
 				// Choose interaction partner and compute center of mass energy
@@ -133,12 +135,23 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				eCMKev := interactionAtom.m / (interactionAtom.m + particle.m) * particle.energy * JtoeV / 1000
 				//scatteringCS := scatteringCrossSection(&interactionAtom, particle.energy, material)
 
-				// compute scattering cross section
+				//  *********** compute scattering cross section ***********
+				scatteringCS := 0.0
 				//is returned in cm^2, convert to m^2
-				scatteringCS := lt.InterpolateValue(eCMKev) * 1e-6
+				// Goes to previously interpolated functions if particle energy (lab) is < 80 keV
+				if (particle.energy * JtoeV / 1000) <= 80 {
+					scatteringCS = scatteringCrossSection(&interactionAtom, eCMKev)
+				} else {
+					if interactionAtom.Z == 46 {
+						scatteringCS = ltPd.InterpolateValue(eCMKev) * 1e-6
+					}
+					if interactionAtom.Z == 1 {
+						scatteringCS = ltD.InterpolateValue(eCMKev) * 1e-6
+					}
+				}
 				//fmt.Printf("scatCS: %0.5e", scatteringCS)
 
-				// compute fusion cross section
+				// **************  compute fusion cross section *************
 				material.mutex.Lock()
 				fusionCS := 0.0
 				if interactionAtom.Z < 3 {
@@ -181,6 +194,8 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				particle.position += stepLength
 
 				// Print the particle's state
+				//fmt.Printf("Particle energy(keV): %f, atom: %d, CMenergy(keV): %f, scatCS(mb): %0.3e, fusCS(mb): %0.3e, losses(keV/nm): %f\n", particle.energy*JtoeV/1000, interactionAtom.Z, eCMKev, scatteringCS/mbtom2, fusionCS/mbtom2, losses*JtoeV/1000*1e-9)
+
 				//fmt.Printf("Goroutine %d, Particle energy(keV): %f, position(nm): %0.3e, losses(keV/nm): %f, steplength(nm): %f\n", id, particle.energy*JtoeV/1000, particle.position*1e9, losses*JtoeV/1000*1e-9, stepLength*1e9)
 			}
 

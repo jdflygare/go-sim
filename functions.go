@@ -139,12 +139,20 @@ func fusionCrossSection(eCMKev float64, particle *Particle, interactionAtom *Ato
 	particle.fusionReaction = currentReaction
 
 	//fmt.Printf("fusionCS: %.5e", sFus*1e3/math.Exp(BG[currentReaction]/math.Sqrt(eKev)))
-	// Calculate and return the fusion cross-section in millibarn
+	// Calculate and return the fusion cross-section in m^2
 	return sFus * 1e3 / (eCMKev * math.Exp(BG[currentReaction]/math.Sqrt(eCMKev))) * mbtom2
 }
 
-func scatteringCrossSection(interactionAtom *Atom, energy float64, material *Material) float64 {
-	return 2.5e-22
+func scatteringCrossSection(interactionAtom *Atom, energyCM float64) float64 {
+	scatCS := 0.0
+	// energy comes in keV center of mass, and function returns cm^2
+	if interactionAtom.Z == 46 {
+		scatCS = 2.24297e-13 + 1.27243e-15*math.Pow(energyCM, 1.0/3.0) - 2.18116e-13*math.Pow(energyCM, 0.01)
+	}
+	if interactionAtom.Z == 1 {
+		scatCS = 1.9747e-12 + 1.18019e-12*math.Pow(energyCM, 1.0/40.0) - 3.14955e-12*math.Pow(energyCM, 0.01)
+	}
+	return scatCS * 1e-6
 }
 
 func meanFreePath(scatteringCS float64, fusionCS float64, material *Material) float64 {
