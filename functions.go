@@ -146,8 +146,12 @@ func fusionCrossSection(eCMKev float64, particle *Particle, interactionAtom *Ato
 func scatteringCrossSection(interactionAtom *Atom, energyCM float64) float64 {
 	scatCS := 0.0
 	// energy comes in keV center of mass, and function returns cm^2
+
 	if interactionAtom.Z == 46 {
 		scatCS = 2.24297e-13 + 1.27243e-15*math.Pow(energyCM, 1.0/3.0) - 2.18116e-13*math.Pow(energyCM, 0.01)
+	}
+	if interactionAtom.Z == 22 {
+		scatCS = 1.5694e-12 + 9.02957e-13*math.Pow(energyCM, 1.0/40.0) - 2.46483e-12*math.Pow(energyCM, 0.01)
 	}
 	if interactionAtom.Z == 1 {
 		scatCS = 1.9747e-12 + 1.18019e-12*math.Pow(energyCM, 1.0/40.0) - 3.14955e-12*math.Pow(energyCM, 0.01)

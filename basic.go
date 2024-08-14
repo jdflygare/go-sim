@@ -83,10 +83,10 @@ func initializeMaterial() *Material {
 	//ti = 5.67e28, pd=6.79e28
 	return &Material{
 		atoms: []Atom{
-			{name: "deuterium", density: 6.79e28, Z: 1, A: 2, m: 2.014 * AMUtoKG},
-			{name: "titanium", density: 0, Z: 22, A: 48, m: 47.867 * AMUtoKG},
-			{name: "palladium", density: 6.79e28, Z: 46, A: 106, m: 106.42 * AMUtoKG},
-			{name: "tritium", density: 0, Z: 1, A: 3, m: 3.016 * AMUtoKG},
+			{name: "deuterium", density: 0, Z: 1, A: 2, m: 2.014 * AMUtoKG},
+			{name: "titanium", density: 5.67e28, Z: 22, A: 48, m: 47.867 * AMUtoKG},
+			{name: "palladium", density: 0, Z: 46, A: 106, m: 106.42 * AMUtoKG},
+			{name: "tritium", density: 5.67e28, Z: 1, A: 3, m: 3.016 * AMUtoKG},
 			{name: "hydrogen", density: 0.0, Z: 1, A: 1, m: 1.008 * AMUtoKG},
 			{name: "helium3", density: 0.0, Z: 2, A: 3, m: 3.016 * AMUtoKG},
 		},
@@ -96,7 +96,7 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 15000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1}
+		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1}
 	}
 	return particles
 }
@@ -116,7 +116,8 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 
 	fmt.Print("Initializing lookup table\n")
 	ltPd := NewLookupTable(scatData, 1, 2)
-	ltD := NewLookupTable(scatData, 3, 4)
+	ltTi := NewLookupTable(scatData, 3, 4)
+	ltD := NewLookupTable(scatData, 5, 6)
 	//fmt.Print(lt)
 
 	fusions := 0
@@ -144,6 +145,9 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				} else {
 					if interactionAtom.Z == 46 {
 						scatteringCS = ltPd.InterpolateValue(eCMKev) * 1e-6
+					}
+					if interactionAtom.Z == 22 {
+						scatteringCS = ltTi.InterpolateValue(eCMKev) * 1e-6
 					}
 					if interactionAtom.Z == 1 {
 						scatteringCS = ltD.InterpolateValue(eCMKev) * 1e-6
@@ -215,7 +219,7 @@ func main() {
 	start := time.Now()
 	//rand.Seed(time.Now().UnixNano())
 	var wg sync.WaitGroup
-	nParticles := 1_000_0
+	nParticles := 1_000_000
 
 	wg.Add(1)
 	particleStack := runSimulation(nParticles, &wg) // Run the simulation and get the particle stack
@@ -225,7 +229,7 @@ func main() {
 	fmt.Printf("Total simulation time: %s\n", duration)
 
 	// Write the particle stack to a CSV file
-	filename := "particles.csv"
+	filename := "particles_TiTr_150keV.csv"
 	if err := writeParticlesToCSV(particleStack, filename); err != nil {
 		fmt.Printf("Error writing to CSV: %v\n", err)
 		return
