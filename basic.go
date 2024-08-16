@@ -32,6 +32,8 @@ const (
 	kc             = 2.30709e-28  // ec^2/(4 pi e0) in Joule Meter
 	threshold      = 1000 * eVtoJ // cutoff in J
 	mbtom2         = 1e-31        // convert millibarn to m^2
+	kqq            = 1.43965      // keV pm
+	sr             = 0.00327579   // pm
 )
 
 // Constants for the Bosch-Hale formulas
@@ -73,6 +75,7 @@ type Particle struct {
 	m                float64
 	scatteringEvents int
 	fusionReaction   int
+	fusionEnergy     float64
 }
 
 type LookupTable struct {
@@ -96,7 +99,7 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1}
+		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1, fusionEnergy: 0.0}
 	}
 	return particles
 }
@@ -158,8 +161,12 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				// **************  compute fusion cross section *************
 				material.mutex.Lock()
 				fusionCS := 0.0
+				fue := 0.0
 				if interactionAtom.Z < 3 {
 					fusionCS = fusionCrossSection(eCMKev, particle, &interactionAtom)
+					fue = getScreeningEnhancement(particle, &interactionAtom, eCMKev, 0.3)
+
+					fusionCS = fue * fusionCS
 				}
 
 				//fmt.Printf("energy: %f, fusion CS: %0.5e\n", particle.energy*JtoeV/1000, fusionCS/mbtom2)
@@ -178,6 +185,7 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 					}
 					//fmt.Printf("fusion happened\n")
 					fusions += 1
+					particle.fusionEnergy = particle.energy
 					particle.energy = 0.0
 				} else {
 					// scattering happened
@@ -229,7 +237,7 @@ func main() {
 	fmt.Printf("Total simulation time: %s\n", duration)
 
 	// Write the particle stack to a CSV file
-	filename := "particles_TiTr_150keV.csv"
+	filename := "particles_TiTr_150keV_5x.csv"
 	if err := writeParticlesToCSV(particleStack, filename); err != nil {
 		fmt.Printf("Error writing to CSV: %v\n", err)
 		return

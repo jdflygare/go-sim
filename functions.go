@@ -140,7 +140,55 @@ func fusionCrossSection(eCMKev float64, particle *Particle, interactionAtom *Ato
 
 	//fmt.Printf("fusionCS: %.5e", sFus*1e3/math.Exp(BG[currentReaction]/math.Sqrt(eKev)))
 	// Calculate and return the fusion cross-section in m^2
-	return sFus * 1e3 / (eCMKev * math.Exp(BG[currentReaction]/math.Sqrt(eCMKev))) * mbtom2
+	sigmaFus := sFus * 1e3 / (eCMKev * math.Exp(BG[currentReaction]/math.Sqrt(eCMKev))) * mbtom2
+
+	return sigmaFus
+}
+
+func getScreeningEnhancement(particle *Particle, interactionAtom *Atom, E float64, Ue float64) float64 {
+
+	fue := 0.0
+
+	// for DD
+	if particle.A == 2 && interactionAtom.A == 2 {
+		fue = E / (E + Ue) * math.Exp(GamowCDD(E)-GamowCDD(E+Ue))
+	}
+	//for DT
+	if particle.A == 2 && interactionAtom.A == 3 {
+		fue = E / (E + Ue) * math.Exp(GamowCDT(E)-GamowCDT(E+Ue))
+	}
+
+	return fue
+}
+
+// takes in keV and pm, computes Gc from NASA theory paper
+func GamowCDD(E float64) float64 {
+	// compute for strong radius position
+	firstPart1 := 0.0981589 * math.Sqrt(-20000.0*E+28793.0/sr) * sr
+	secondPart1 := (19.9849 * math.Atan(0.00707107*math.Sqrt(-20000.0*E+28793.0/sr)/math.Sqrt(E))) / math.Sqrt(E)
+	result1 := firstPart1 - secondPart1
+	// compute for classical turning point
+	rctp := kqq / E
+	firstPart2 := 0.0981589 * math.Sqrt(-20000.0*E+28793.0/rctp) * rctp
+	secondPart2 := (19.9849 * math.Atan(0.00707107*math.Sqrt(-20000.0*E+28793.0/rctp)/math.Sqrt(E))) / math.Sqrt(E)
+	result2 := firstPart2 - secondPart2
+
+	return result2 - result1
+}
+
+// takes in keV and pm
+func GamowCDT(E float64) float64 {
+	// compute for strong radius position
+	firstPart1 := 0.107497 * math.Sqrt(-20000.0*E+28793.0/sr) * sr
+	secondPart1 := (21.8861 * math.Atan(0.00707107*math.Sqrt(-20000.0*E+28793.0/sr)/math.Sqrt(E))) / math.Sqrt(E)
+	result1 := firstPart1 - secondPart1
+	// compute for classical turning point
+	rctp := kqq / E
+	firstPart2 := 0.107497 * math.Sqrt(-20000.0*E+28793.0/rctp) * rctp
+	secondPart2 := (21.8861 * math.Atan(0.00707107*math.Sqrt(-20000.0*E+28793.0/rctp)/math.Sqrt(E))) / math.Sqrt(E)
+	result2 := firstPart2 - secondPart2
+
+	return result2 - result1
 }
 
 func scatteringCrossSection(interactionAtom *Atom, energyCM float64) float64 {
@@ -176,7 +224,7 @@ func writeParticlesToCSV(particles []*Particle, filename string) error {
 	defer writer.Flush()
 
 	// Write CSV header
-	header := []string{"Particle ID", "Energy (keV)", "Position (nm)", "Scattering Events", "Fusion Reactions"}
+	header := []string{"Particle ID", "Energy (keV)", "Position (nm)", "Scattering Events", "Fusion Reactions", "Fusion Energy"}
 	if err := writer.Write(header); err != nil {
 		return err
 	}
@@ -189,6 +237,7 @@ func writeParticlesToCSV(particles []*Particle, filename string) error {
 			fmt.Sprintf("%0.2e", particle.position*1e9),
 			strconv.Itoa(particle.scatteringEvents),
 			strconv.Itoa(particle.fusionReaction),
+			fmt.Sprintf("%0.2e", particle.fusionEnergy*JtoeV/1000),
 		}
 		if err := writer.Write(record); err != nil {
 			return err
