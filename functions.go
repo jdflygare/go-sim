@@ -145,50 +145,33 @@ func fusionCrossSection(eCMKev float64, particle *Particle, interactionAtom *Ato
 	return sigmaFus
 }
 
-func getScreeningEnhancement(particle *Particle, interactionAtom *Atom, E float64, Ue float64) float64 {
+func getScreeningEnhancement(particle *Particle, interactionAtom *Atom, ECM float64, Ue float64) float64 {
+	// Reduced mass (mu)
+	mu := interactionAtom.m * particle.m / (interactionAtom.m + particle.m)
 
-	fue := 0.0
+	// Strong radius position (sr)
+	sr := sro * (math.Pow(float64(particle.A), 1.0/3.0) + math.Pow(float64(interactionAtom.A), 1.0/3.0))
 
-	// for DD
-	if particle.A == 2 && interactionAtom.A == 2 {
-		fue = E / (E + Ue) * math.Exp(GamowCDD(E)-GamowCDD(E+Ue))
-	}
-	//for DT
-	if particle.A == 2 && interactionAtom.A == 3 {
-		fue = E / (E + Ue) * math.Exp(GamowCDT(E)-GamowCDT(E+Ue))
-	}
+	// Coulomb potential (Vc)
+	Vc := kqqSI * float64(interactionAtom.Z) / sr
+
+	// Gamow energy (Eg)
+	Eg := 2 * mu * math.Pow(speedOfLight, 2.0) * math.Pow(math.Pi*alpha*float64(particle.Z)*float64(interactionAtom.Z), 2.0)
+
+	// Compute the Gamow factors
+	Gcbase := GamowC(Eg, ECM, Vc)
+
+	Gcenh := GamowC(Eg, ECM+Ue, Vc)
+
+	// Compute the screening enhancement factor
+	fue := ECM / (ECM + Ue) * math.Exp(Gcbase-Gcenh)
 
 	return fue
 }
 
-// takes in keV and pm, computes Gc from NASA theory paper
-func GamowCDD(E float64) float64 {
-	// compute for strong radius position
-	firstPart1 := 0.0981589 * math.Sqrt(-20000.0*E+28793.0/sr) * sr
-	secondPart1 := (19.9849 * math.Atan(0.00707107*math.Sqrt(-20000.0*E+28793.0/sr)/math.Sqrt(E))) / math.Sqrt(E)
-	result1 := firstPart1 - secondPart1
-	// compute for classical turning point
-	rctp := kqq / E
-	firstPart2 := 0.0981589 * math.Sqrt(-20000.0*E+28793.0/rctp) * rctp
-	secondPart2 := (19.9849 * math.Atan(0.00707107*math.Sqrt(-20000.0*E+28793.0/rctp)/math.Sqrt(E))) / math.Sqrt(E)
-	result2 := firstPart2 - secondPart2
-
-	return result2 - result1
-}
-
-// takes in keV and pm
-func GamowCDT(E float64) float64 {
-	// compute for strong radius position
-	firstPart1 := 0.107497 * math.Sqrt(-20000.0*E+28793.0/sr) * sr
-	secondPart1 := (21.8861 * math.Atan(0.00707107*math.Sqrt(-20000.0*E+28793.0/sr)/math.Sqrt(E))) / math.Sqrt(E)
-	result1 := firstPart1 - secondPart1
-	// compute for classical turning point
-	rctp := kqq / E
-	firstPart2 := 0.107497 * math.Sqrt(-20000.0*E+28793.0/rctp) * rctp
-	secondPart2 := (21.8861 * math.Atan(0.00707107*math.Sqrt(-20000.0*E+28793.0/rctp)/math.Sqrt(E))) / math.Sqrt(E)
-	result2 := firstPart2 - secondPart2
-
-	return result2 - result1
+func GamowC(Eg float64, ECM float64, Vc float64) float64 {
+	Gc := math.Pow(Eg/ECM, 0.5) * (2 / math.Pi * 1 / math.Cos(math.Sqrt(ECM/Vc)-math.Sqrt(ECM/Vc*(1-ECM/Vc))))
+	return Gc
 }
 
 func scatteringCrossSection(interactionAtom *Atom, energyCM float64) float64 {

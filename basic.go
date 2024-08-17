@@ -29,11 +29,15 @@ const (
 	electronCharge = 1.602e-19            // Coulombs
 	kCoulomb       = 8.9875517873681764e9 // Coulomb's constant in N·m²/C²
 	pi             = 3.141592653589793
-	kc             = 2.30709e-28  // ec^2/(4 pi e0) in Joule Meter
-	threshold      = 1000 * eVtoJ // cutoff in J
-	mbtom2         = 1e-31        // convert millibarn to m^2
-	kqq            = 1.43965      // keV pm
-	sr             = 0.00327579   // pm
+	kc             = 2.30709e-28    // ec^2/(4 pi e0) in Joule Meter
+	threshold      = 1000 * eVtoJ   // cutoff in J
+	mbtom2         = 1e-31          // convert millibarn to m^2
+	kqq            = 1.43965        // keV pm
+	kqqSI          = 2.30657e-28    // Coulomb^2 Meter/Farad
+	sro            = 1.25e-15       // m
+	srSI           = 0.00327579e-12 // m
+	hbar           = 1.0545e-34     // J s
+	alpha          = 0.00730013     // fine structure constant
 )
 
 // Constants for the Bosch-Hale formulas
@@ -86,7 +90,7 @@ func initializeMaterial() *Material {
 	//ti = 5.67e28, pd=6.79e28
 	return &Material{
 		atoms: []Atom{
-			{name: "deuterium", density: 0, Z: 1, A: 2, m: 2.014 * AMUtoKG},
+			{name: "deuterium", density: 0.0, Z: 1, A: 2, m: 2.014 * AMUtoKG},
 			{name: "titanium", density: 5.67e28, Z: 22, A: 48, m: 47.867 * AMUtoKG},
 			{name: "palladium", density: 0, Z: 46, A: 106, m: 106.42 * AMUtoKG},
 			{name: "tritium", density: 5.67e28, Z: 1, A: 3, m: 3.016 * AMUtoKG},
@@ -99,7 +103,7 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1, fusionEnergy: 0.0}
+		particles[i] = &Particle{position: 0.0, energy: 15000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1, fusionEnergy: 0.0}
 	}
 	return particles
 }
@@ -137,6 +141,8 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				// Choose interaction partner and compute center of mass energy
 				interactionAtom := chooseInteractionAtom(total_density, material)
 				eCMKev := interactionAtom.m / (interactionAtom.m + particle.m) * particle.energy * JtoeV / 1000
+				eCM := interactionAtom.m / (interactionAtom.m + particle.m) * particle.energy
+				fmt.Printf("Ecom %0.2e\n", eCMKev)
 				//scatteringCS := scatteringCrossSection(&interactionAtom, particle.energy, material)
 
 				//  *********** compute scattering cross section ***********
@@ -164,7 +170,8 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				fue := 0.0
 				if interactionAtom.Z < 3 {
 					fusionCS = fusionCrossSection(eCMKev, particle, &interactionAtom)
-					fue = getScreeningEnhancement(particle, &interactionAtom, eCMKev, 0.3)
+					fue = getScreeningEnhancement(particle, &interactionAtom, eCM, 300*eVtoJ)
+					fmt.Printf("fue: %0.5e\n", fue)
 
 					fusionCS = fue * fusionCS
 				}
@@ -208,7 +215,7 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				// Print the particle's state
 				//fmt.Printf("Particle energy(keV): %f, atom: %d, CMenergy(keV): %f, scatCS(mb): %0.3e, fusCS(mb): %0.3e, losses(keV/nm): %f\n", particle.energy*JtoeV/1000, interactionAtom.Z, eCMKev, scatteringCS/mbtom2, fusionCS/mbtom2, losses*JtoeV/1000*1e-9)
 
-				//fmt.Printf("Goroutine %d, Particle energy(keV): %f, position(nm): %0.3e, losses(keV/nm): %f, steplength(nm): %f\n", id, particle.energy*JtoeV/1000, particle.position*1e9, losses*JtoeV/1000*1e-9, stepLength*1e9)
+				fmt.Printf("Particle energy(keV): %f, position(nm): %0.3e, losses(keV/nm): %f, steplength(nm): %f\n", particle.energy*JtoeV/1000, particle.position*1e9, losses*JtoeV/1000*1e-9, stepLength*1e9)
 			}
 
 			particleStack[id] = particle
@@ -227,7 +234,7 @@ func main() {
 	start := time.Now()
 	//rand.Seed(time.Now().UnixNano())
 	var wg sync.WaitGroup
-	nParticles := 1_000_000
+	nParticles := 1
 
 	wg.Add(1)
 	particleStack := runSimulation(nParticles, &wg) // Run the simulation and get the particle stack
