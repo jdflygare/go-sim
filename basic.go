@@ -80,6 +80,7 @@ type Particle struct {
 	scatteringEvents int
 	fusionReaction   int
 	fusionEnergy     float64
+	enhancement      float64
 }
 
 type LookupTable struct {
@@ -103,7 +104,7 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 15000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1, fusionEnergy: 0.0}
+		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1, fusionEnergy: 0.0, enhancement: 0.0}
 	}
 	return particles
 }
@@ -142,7 +143,6 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				interactionAtom := chooseInteractionAtom(total_density, material)
 				eCMKev := interactionAtom.m / (interactionAtom.m + particle.m) * particle.energy * JtoeV / 1000
 				eCM := interactionAtom.m / (interactionAtom.m + particle.m) * particle.energy
-				fmt.Printf("Ecom %0.2e\n", eCMKev)
 				//scatteringCS := scatteringCrossSection(&interactionAtom, particle.energy, material)
 
 				//  *********** compute scattering cross section ***********
@@ -171,7 +171,8 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				if interactionAtom.Z < 3 {
 					fusionCS = fusionCrossSection(eCMKev, particle, &interactionAtom)
 					fue = getScreeningEnhancement(particle, &interactionAtom, eCM, 300*eVtoJ)
-					fmt.Printf("fue: %0.5e\n", fue)
+					particle.enhancement = fue
+					//fmt.Printf("fue: %0.5e\n", fue)
 
 					fusionCS = fue * fusionCS
 				}
@@ -215,7 +216,7 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				// Print the particle's state
 				//fmt.Printf("Particle energy(keV): %f, atom: %d, CMenergy(keV): %f, scatCS(mb): %0.3e, fusCS(mb): %0.3e, losses(keV/nm): %f\n", particle.energy*JtoeV/1000, interactionAtom.Z, eCMKev, scatteringCS/mbtom2, fusionCS/mbtom2, losses*JtoeV/1000*1e-9)
 
-				fmt.Printf("Particle energy(keV): %f, position(nm): %0.3e, losses(keV/nm): %f, steplength(nm): %f\n", particle.energy*JtoeV/1000, particle.position*1e9, losses*JtoeV/1000*1e-9, stepLength*1e9)
+				//fmt.Printf("Particle energy(keV): %f, position(nm): %0.3e, losses(keV/nm): %f, steplength(nm): %f\n", particle.energy*JtoeV/1000, particle.position*1e9, losses*JtoeV/1000*1e-9, stepLength*1e9)
 			}
 
 			particleStack[id] = particle
@@ -234,7 +235,7 @@ func main() {
 	start := time.Now()
 	//rand.Seed(time.Now().UnixNano())
 	var wg sync.WaitGroup
-	nParticles := 1
+	nParticles := 1_000_00
 
 	wg.Add(1)
 	particleStack := runSimulation(nParticles, &wg) // Run the simulation and get the particle stack

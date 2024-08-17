@@ -207,7 +207,7 @@ func writeParticlesToCSV(particles []*Particle, filename string) error {
 	defer writer.Flush()
 
 	// Write CSV header
-	header := []string{"Particle ID", "Energy (keV)", "Position (nm)", "Scattering Events", "Fusion Reactions", "Fusion Energy"}
+	header := []string{"Particle ID", "Energy (keV)", "Position (nm)", "Scattering Events", "Fusion Reactions", "Fusion Energy", "Enhancement"}
 	if err := writer.Write(header); err != nil {
 		return err
 	}
@@ -221,6 +221,7 @@ func writeParticlesToCSV(particles []*Particle, filename string) error {
 			strconv.Itoa(particle.scatteringEvents),
 			strconv.Itoa(particle.fusionReaction),
 			fmt.Sprintf("%0.2e", particle.fusionEnergy*JtoeV/1000),
+			fmt.Sprintf("%f", particle.enhancement),
 		}
 		if err := writer.Write(record); err != nil {
 			return err
