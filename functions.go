@@ -124,7 +124,7 @@ func chooseReaction(particle *Particle, interactionAtom *Atom) int {
 	return 0
 }
 
-func fusionCrossSection(eCMKev float64, particle *Particle, interactionAtom *Atom) float64 {
+func fusionCrossSection(eCMKev float64, particle *Particle, interactionAtom *Atom) (float64, int) {
 	currentReaction := chooseReaction(particle, interactionAtom)
 
 	dummy1 := 0.0
@@ -136,13 +136,12 @@ func fusionCrossSection(eCMKev float64, particle *Particle, interactionAtom *Ato
 		dummy2 += B[currentReaction][i] * math.Pow(eCMKev, float64(i+1))
 	}
 	sFus := dummy1 / dummy2
-	particle.fusionReaction = currentReaction
 
 	//fmt.Printf("fusionCS: %.5e", sFus*1e3/math.Exp(BG[currentReaction]/math.Sqrt(eKev)))
 	// Calculate and return the fusion cross-section in m^2
 	sigmaFus := sFus * 1e3 / (eCMKev * math.Exp(BG[currentReaction]/math.Sqrt(eCMKev))) * mbtom2
 
-	return sigmaFus
+	return sigmaFus, currentReaction
 }
 
 func getScreeningEnhancement(particle *Particle, interactionAtom *Atom, ECM float64, Ue float64) float64 {
@@ -214,12 +213,22 @@ func writeParticlesToCSV(particles []*Particle, filename string) error {
 
 	// Write particle data
 	for i, particle := range particles {
+		// Convert fusionReaction slice to a single string
+		var fusionReactionStr string
+		if len(particle.fusionReaction) == 0 {
+			fusionReactionStr = "-1"
+		} else {
+			for _, num := range particle.fusionReaction {
+				fusionReactionStr += strconv.Itoa(num)
+			}
+		}
+
 		record := []string{
 			strconv.Itoa(i),
 			fmt.Sprintf("%0.2e", particle.energy*JtoeV/1000),
 			fmt.Sprintf("%0.2e", particle.position*1e9),
 			strconv.Itoa(particle.scatteringEvents),
-			strconv.Itoa(particle.fusionReaction),
+			fusionReactionStr, // Use the concatenated string
 			fmt.Sprintf("%0.2e", particle.fusionEnergy*JtoeV/1000),
 			fmt.Sprintf("%f", particle.enhancement),
 		}

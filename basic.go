@@ -78,7 +78,7 @@ type Particle struct {
 	A                int
 	m                float64
 	scatteringEvents int
-	fusionReaction   int
+	fusionReaction   []int
 	fusionEnergy     float64
 	enhancement      float64
 }
@@ -104,7 +104,7 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: -1, fusionEnergy: 0.0, enhancement: 0.0}
+		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: []int{}, fusionEnergy: 0.0, enhancement: 0.0}
 	}
 	return particles
 }
@@ -167,9 +167,10 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				// **************  compute fusion cross section *************
 				material.mutex.Lock()
 				fusionCS := 0.0
+				reactionType := 0
 				fue := 0.0
 				if interactionAtom.Z < 3 {
-					fusionCS = fusionCrossSection(eCMKev, particle, &interactionAtom)
+					fusionCS, reactionType = fusionCrossSection(eCMKev, particle, &interactionAtom)
 					fue = getScreeningEnhancement(particle, &interactionAtom, eCM, 300*eVtoJ)
 					particle.enhancement = fue
 					//fmt.Printf("fue: %0.5e\n", fue)
@@ -177,30 +178,34 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 					fusionCS = fue * fusionCS
 				}
 
-				//fmt.Printf("energy: %f, fusion CS: %0.5e\n", particle.energy*JtoeV/1000, fusionCS/mbtom2)
-				// check if fusion or scattering occurs
-				if rand.Float64() < fusionCS/(fusionCS+scatteringCS) {
-					// fusion happened
-					for i := range material.atoms {
-						switch material.atoms[i].name {
-						case "tritium":
-							material.atoms[i].density += 0.1
-						case "hydrogen":
-							material.atoms[i].density += 0.1
-						case "deuterium":
-							material.atoms[i].density -= 0.1
+				// loop over this X times to boost statistics for fusion events
+				for i := 0; i < 1000; i++ {
+					//fmt.Printf("energy: %f, fusion CS: %0.5e\n", particle.energy*JtoeV/1000, fusionCS/mbtom2)
+					// check if fusion or scattering occurs
+					if rand.Float64() < fusionCS/(fusionCS+scatteringCS) {
+						// fusion happened
+						for i := range material.atoms {
+							switch material.atoms[i].name {
+							case "tritium":
+								material.atoms[i].density += 0.1
+							case "hydrogen":
+								material.atoms[i].density += 0.1
+							case "deuterium":
+								material.atoms[i].density -= 0.1
+							}
 						}
+						//fmt.Printf("fusion happened\n")
+						fusions += 1
+						particle.fusionReaction = append(particle.fusionReaction, reactionType)
+						particle.fusionEnergy = particle.energy
+						particle.energy = 0.0
+					} else {
+						// scattering happened
+						//fmt.Printf("scattering happened\n")
+						//reset fusionreaction to -1
+						//particle.fusionReaction = []int{}
+						particle.scatteringEvents += 1
 					}
-					//fmt.Printf("fusion happened\n")
-					fusions += 1
-					particle.fusionEnergy = particle.energy
-					particle.energy = 0.0
-				} else {
-					// scattering happened
-					//fmt.Printf("scattering happened\n")
-					//reset fusionreaction to -1
-					particle.fusionReaction = -1
-					particle.scatteringEvents += 1
 				}
 				material.mutex.Unlock()
 
@@ -235,7 +240,7 @@ func main() {
 	start := time.Now()
 	//rand.Seed(time.Now().UnixNano())
 	var wg sync.WaitGroup
-	nParticles := 1_000_00
+	nParticles := 1_000_0
 
 	wg.Add(1)
 	particleStack := runSimulation(nParticles, &wg) // Run the simulation and get the particle stack
