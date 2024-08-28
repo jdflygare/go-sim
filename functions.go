@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 func totalDensity(material *Material) float64 {
@@ -183,8 +184,11 @@ func scatteringCrossSection(interactionAtom *Atom, energyCM float64) float64 {
 	if interactionAtom.Z == 22 {
 		scatCS = 1.5694e-12 + 9.02957e-13*math.Pow(energyCM, 1.0/40.0) - 2.46483e-12*math.Pow(energyCM, 0.01)
 	}
-	if interactionAtom.Z == 1 {
+	if interactionAtom.A == 2 {
 		scatCS = 1.9747e-12 + 1.18019e-12*math.Pow(energyCM, 1.0/40.0) - 3.14955e-12*math.Pow(energyCM, 0.01)
+	}
+	if interactionAtom.A == 3 {
+		scatCS = 2.75293e-12 + 3.82808e-12*math.Pow(energyCM, 1.0/60.0) - 6.57569e-12*math.Pow(energyCM, 0.01)
 	}
 	return scatCS * 1e-6
 }
@@ -196,6 +200,35 @@ func meanFreePath(scatteringCS float64, fusionCS float64, material *Material) fl
 }
 
 func writeParticlesToCSV(particles []*Particle, filename string) error {
+	// Create the original file with all particles
+	if err := saveToFile(particles, filename); err != nil {
+		return err
+	}
+
+	// Filter particles to only include those with fusionEnergy > 0
+	var fusion_particles []*Particle
+	for _, particle := range particles {
+		if particle.fusionEnergy > 0 {
+			fusion_particles = append(fusion_particles, particle)
+		}
+	}
+
+	// Modify the filename to append "_fusion" before the extension for the filtered file
+	if strings.HasSuffix(filename, ".csv") {
+		filename = strings.TrimSuffix(filename, ".csv") + "_fusion.csv"
+	} else {
+		filename += "_fusion"
+	}
+
+	// Create the filtered file with only fusion_particles
+	if err := saveToFile(fusion_particles, filename); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func saveToFile(particles []*Particle, filename string) error {
 	file, err := os.Create(filename)
 	if err != nil {
 		return err
@@ -214,7 +247,7 @@ func writeParticlesToCSV(particles []*Particle, filename string) error {
 	// Write particle data
 	for i, particle := range particles {
 		// Convert fusionReaction slice to a single string
-		var fusionReactionStr string
+		fusionReactionStr := "1"
 		if len(particle.fusionReaction) == 0 {
 			fusionReactionStr = "-1"
 		} else {
@@ -225,11 +258,11 @@ func writeParticlesToCSV(particles []*Particle, filename string) error {
 
 		record := []string{
 			strconv.Itoa(i),
-			fmt.Sprintf("%0.2e", particle.energy*JtoeV/1000),
-			fmt.Sprintf("%0.2e", particle.position*1e9),
+			fmt.Sprintf("%f", particle.energy*JtoeV/1000),
+			fmt.Sprintf("%f", particle.position*1e9),
 			strconv.Itoa(particle.scatteringEvents),
 			fusionReactionStr, // Use the concatenated string
-			fmt.Sprintf("%0.2e", particle.fusionEnergy*JtoeV/1000),
+			fmt.Sprintf("%f", particle.fusionEnergy*JtoeV/1000),
 			fmt.Sprintf("%f", particle.enhancement),
 		}
 		if err := writer.Write(record); err != nil {

@@ -91,7 +91,7 @@ func initializeMaterial() *Material {
 	//ti = 5.67e28, pd=6.79e28
 	return &Material{
 		atoms: []Atom{
-			{name: "deuterium", density: 0.0, Z: 1, A: 2, m: 2.014 * AMUtoKG},
+			{name: "deuterium", density: 0, Z: 1, A: 2, m: 2.014 * AMUtoKG},
 			{name: "titanium", density: 5.67e28, Z: 22, A: 48, m: 47.867 * AMUtoKG},
 			{name: "palladium", density: 0, Z: 46, A: 106, m: 106.42 * AMUtoKG},
 			{name: "tritium", density: 5.67e28, Z: 1, A: 3, m: 3.016 * AMUtoKG},
@@ -104,12 +104,12 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: []int{}, fusionEnergy: 0.0, enhancement: 0.0}
+		particles[i] = &Particle{position: 0.0, energy: 210000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: []int{}, fusionEnergy: 0.0, enhancement: 0.0}
 	}
 	return particles
 }
 
-func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
+func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle {
 	defer wg.Done()
 
 	particleStack := make([]*Particle, nParticles)
@@ -117,7 +117,7 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 	particles := initializeParticles(nParticles)
 	total_density := totalDensity(material)
 	// load scattering data and initialize lookup table
-	scatData, err := LoadCSV("scat_results.csv")
+	scatData, err := LoadCSV("scat_results_1e-1.csv")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -126,6 +126,7 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 	ltPd := NewLookupTable(scatData, 1, 2)
 	ltTi := NewLookupTable(scatData, 3, 4)
 	ltD := NewLookupTable(scatData, 5, 6)
+	ltTr := NewLookupTable(scatData, 7, 8)
 	//fmt.Print(lt)
 
 	fusions := 0
@@ -149,7 +150,8 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				scatteringCS := 0.0
 				//is returned in cm^2, convert to m^2
 				// Goes to previously interpolated functions if particle energy (lab) is < 80 keV
-				if (particle.energy * JtoeV / 1000) <= 80 {
+				if (particle.energy * JtoeV / 1000) <= 0 {
+					fmt.Print("used Mathematica fit")
 					scatteringCS = scatteringCrossSection(&interactionAtom, eCMKev)
 				} else {
 					if interactionAtom.Z == 46 {
@@ -158,20 +160,23 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 					if interactionAtom.Z == 22 {
 						scatteringCS = ltTi.InterpolateValue(eCMKev) * 1e-6
 					}
-					if interactionAtom.Z == 1 {
+					if interactionAtom.A == 2 {
 						scatteringCS = ltD.InterpolateValue(eCMKev) * 1e-6
+					}
+					if interactionAtom.A == 3 {
+						scatteringCS = ltTr.InterpolateValue(eCMKev) * 1e-6
 					}
 				}
 				//fmt.Printf("scatCS: %0.5e", scatteringCS)
 
 				// **************  compute fusion cross section *************
-				material.mutex.Lock()
+				//material.mutex.Lock()
 				fusionCS := 0.0
 				reactionType := 0
 				fue := 0.0
 				if interactionAtom.Z < 3 {
 					fusionCS, reactionType = fusionCrossSection(eCMKev, particle, &interactionAtom)
-					fue = getScreeningEnhancement(particle, &interactionAtom, eCM, 300*eVtoJ)
+					fue = getScreeningEnhancement(particle, &interactionAtom, eCM, 0*eVtoJ)
 					particle.enhancement = fue
 					//fmt.Printf("fue: %0.5e\n", fue)
 
@@ -179,12 +184,12 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 				}
 
 				// loop over this X times to boost statistics for fusion events
-				for i := 0; i < 1000; i++ {
+				for i := 0; i < replicas; i++ {
 					//fmt.Printf("energy: %f, fusion CS: %0.5e\n", particle.energy*JtoeV/1000, fusionCS/mbtom2)
 					// check if fusion or scattering occurs
 					if rand.Float64() < fusionCS/(fusionCS+scatteringCS) {
 						// fusion happened
-						for i := range material.atoms {
+						/*for i := range material.atoms {
 							switch material.atoms[i].name {
 							case "tritium":
 								material.atoms[i].density += 0.1
@@ -193,7 +198,7 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 							case "deuterium":
 								material.atoms[i].density -= 0.1
 							}
-						}
+						}*/
 						//fmt.Printf("fusion happened\n")
 						fusions += 1
 						particle.fusionReaction = append(particle.fusionReaction, reactionType)
@@ -207,13 +212,13 @@ func runSimulation(nParticles int, wg *sync.WaitGroup) []*Particle {
 						particle.scatteringEvents += 1
 					}
 				}
-				material.mutex.Unlock()
+				//material.mutex.Unlock()
 
 				//fmt.Printf("scatCS %.5e, fusCS %.5e\n", scatteringCS, fusionCS)
 				// Compute new location and energy
 				meanPath := meanFreePath(scatteringCS, fusionCS, material)
 				// compute the step length change
-				stepLength := -meanPath * math.Log(rand.Float64())
+				stepLength := -meanPath * math.Log(rand.Float64()) * 4.5
 				losses := computeLosses(particle, material)
 				particle.energy -= losses * stepLength
 				particle.position += stepLength
@@ -240,17 +245,18 @@ func main() {
 	start := time.Now()
 	//rand.Seed(time.Now().UnixNano())
 	var wg sync.WaitGroup
-	nParticles := 1_000_0
+	nParticles := 1_000_000
+	replicas := 10
 
 	wg.Add(1)
-	particleStack := runSimulation(nParticles, &wg) // Run the simulation and get the particle stack
+	particleStack := runSimulation(nParticles, replicas, &wg) // Run the simulation and get the particle stack
 
 	wg.Wait()
 	duration := time.Since(start)
 	fmt.Printf("Total simulation time: %s\n", duration)
 
 	// Write the particle stack to a CSV file
-	filename := "particles_TiTr_150keV_5x.csv"
+	filename := "/Users/josh/Documents/Fusion/py_data/outputs/TiTr_test_5e-1.csv"
 	if err := writeParticlesToCSV(particleStack, filename); err != nil {
 		fmt.Printf("Error writing to CSV: %v\n", err)
 		return
