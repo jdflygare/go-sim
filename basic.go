@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"math"
 	"math/rand"
 	"sync"
 	"time"
@@ -104,7 +103,7 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 210000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: []int{}, fusionEnergy: 0.0, enhancement: 0.0}
+		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: []int{}, fusionEnergy: 0.0, enhancement: 0.0}
 	}
 	return particles
 }
@@ -140,33 +139,27 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 			//fmt.Printf("Goroutine %d started, particle energy %0.5e\n", id, particle.energy*JtoeV/1000) // Print the start of the goroutine
 			for particle.energy > threshold {
 
-				// Choose interaction partner and compute center of mass energy
+				// ********* Choose interaction partner and compute center of mass energy ***********
 				interactionAtom := chooseInteractionAtom(total_density, material)
 				eCMKev := interactionAtom.m / (interactionAtom.m + particle.m) * particle.energy * JtoeV / 1000
 				eCM := interactionAtom.m / (interactionAtom.m + particle.m) * particle.energy
-				//scatteringCS := scatteringCrossSection(&interactionAtom, particle.energy, material)
 
 				//  *********** compute scattering cross section ***********
 				scatteringCS := 0.0
 				//is returned in cm^2, convert to m^2
-				// Goes to previously interpolated functions if particle energy (lab) is < 80 keV
-				if (particle.energy * JtoeV / 1000) <= 0 {
-					fmt.Print("used Mathematica fit")
-					scatteringCS = scatteringCrossSection(&interactionAtom, eCMKev)
-				} else {
-					if interactionAtom.Z == 46 {
-						scatteringCS = ltPd.InterpolateValue(eCMKev) * 1e-6
-					}
-					if interactionAtom.Z == 22 {
-						scatteringCS = ltTi.InterpolateValue(eCMKev) * 1e-6
-					}
-					if interactionAtom.A == 2 {
-						scatteringCS = ltD.InterpolateValue(eCMKev) * 1e-6
-					}
-					if interactionAtom.A == 3 {
-						scatteringCS = ltTr.InterpolateValue(eCMKev) * 1e-6
-					}
+				if interactionAtom.Z == 46 {
+					scatteringCS = ltPd.InterpolateValue(eCMKev) * 1e-6
 				}
+				if interactionAtom.Z == 22 {
+					scatteringCS = ltTi.InterpolateValue(eCMKev) * 1e-6
+				}
+				if interactionAtom.A == 2 {
+					scatteringCS = ltD.InterpolateValue(eCMKev) * 1e-6
+				}
+				if interactionAtom.A == 3 {
+					scatteringCS = ltTr.InterpolateValue(eCMKev) * 1e-6
+				}
+
 				//fmt.Printf("scatCS: %0.5e", scatteringCS)
 
 				// **************  compute fusion cross section *************
@@ -216,17 +209,20 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 
 				//fmt.Printf("scatCS %.5e, fusCS %.5e\n", scatteringCS, fusionCS)
 				// Compute new location and energy
-				meanPath := meanFreePath(scatteringCS, fusionCS, material)
+				meanPath := meanFreePath(scatteringCS, fusionCS, material, &interactionAtom)
 				// compute the step length change
-				stepLength := -meanPath * math.Log(rand.Float64()) * 4.5
+				stepLength := meanPath //-meanPath * math.Log(rand.Float64()) * 2.2
 				losses := computeLosses(particle, material)
-				particle.energy -= losses * stepLength
-				particle.position += stepLength
 
 				// Print the particle's state
 				//fmt.Printf("Particle energy(keV): %f, atom: %d, CMenergy(keV): %f, scatCS(mb): %0.3e, fusCS(mb): %0.3e, losses(keV/nm): %f\n", particle.energy*JtoeV/1000, interactionAtom.Z, eCMKev, scatteringCS/mbtom2, fusionCS/mbtom2, losses*JtoeV/1000*1e-9)
 
-				//fmt.Printf("Particle energy(keV): %f, position(nm): %0.3e, losses(keV/nm): %f, steplength(nm): %f\n", particle.energy*JtoeV/1000, particle.position*1e9, losses*JtoeV/1000*1e-9, stepLength*1e9)
+				//fmt.Printf("Particle energy(keV): %f, position(nm): %0.3e, int.A: %d, eCM(keV): %f, fue: %f\n", particle.energy*JtoeV/1000, particle.position*1e9, interactionAtom.A, eCMKev, fue)
+
+				// Update particle energy and position
+				particle.energy -= losses * stepLength
+				particle.position += stepLength
+
 			}
 
 			particleStack[id] = particle
@@ -256,7 +252,7 @@ func main() {
 	fmt.Printf("Total simulation time: %s\n", duration)
 
 	// Write the particle stack to a CSV file
-	filename := "/Users/josh/Documents/Fusion/py_data/outputs/TiTr_test_5e-1.csv"
+	filename := "/Users/josh/Documents/Fusion/py_data/outputs/TiD_range_test_1e-1.csv"
 	if err := writeParticlesToCSV(particleStack, filename); err != nil {
 		fmt.Printf("Error writing to CSV: %v\n", err)
 		return

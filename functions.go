@@ -78,7 +78,7 @@ func computeLosses(particle *Particle, material *Material) float64 {
 		} else {
 			deComp = deLindhardt
 		}
-		avgLoss += atom.density / totalDensity(material) * deComp
+		avgLoss += deComp
 	}
 
 	return avgLoss
@@ -160,8 +160,10 @@ func getScreeningEnhancement(particle *Particle, interactionAtom *Atom, ECM floa
 
 	// Compute the Gamow factors
 	Gcbase := GamowC(Eg, ECM, Vc)
+	//fmt.Printf("Gcbase %f\n", Gcbase)
 
 	Gcenh := GamowC(Eg, ECM+Ue, Vc)
+	//fmt.Printf("GcEnh %f\n", Gcenh)
 
 	// Compute the screening enhancement factor
 	fue := ECM / (ECM + Ue) * math.Exp(Gcbase-Gcenh)
@@ -193,10 +195,10 @@ func scatteringCrossSection(interactionAtom *Atom, energyCM float64) float64 {
 	return scatCS * 1e-6
 }
 
-func meanFreePath(scatteringCS float64, fusionCS float64, material *Material) float64 {
-	totalDensity := totalDensity(material)
+func meanFreePath(scatteringCS float64, fusionCS float64, material *Material, interactionAtom *Atom) float64 {
+	//totalDensity := totalDensity(material)
 
-	return 1.0 / ((scatteringCS + fusionCS) * totalDensity)
+	return 1.0 / ((scatteringCS) * interactionAtom.density)
 }
 
 func writeParticlesToCSV(particles []*Particle, filename string) error {
