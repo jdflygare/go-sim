@@ -197,8 +197,8 @@ func scatteringCrossSection(interactionAtom *Atom, energyCM float64) float64 {
 
 func meanFreePath(scatteringCS float64, fusionCS float64, material *Material, interactionAtom *Atom) float64 {
 	//totalDensity := totalDensity(material)
-
-	return 1.0 / ((scatteringCS) * interactionAtom.density)
+	// scattering is always higher than fusion, so determines the shorter path.
+	return 1.0 / (scatteringCS * interactionAtom.density)
 }
 
 func writeParticlesToCSV(particles []*Particle, filename string) error {
