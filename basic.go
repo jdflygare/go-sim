@@ -90,10 +90,10 @@ func initializeMaterial() *Material {
 	//ti = 5.67e28, pd=6.79e28
 	return &Material{
 		atoms: []Atom{
-			{name: "deuterium", density: 5.67e28, Z: 1, A: 2, m: 2.014 * AMUtoKG},
+			{name: "deuterium", density: 0, Z: 1, A: 2, m: 2.014 * AMUtoKG},
 			{name: "titanium", density: 5.67e28, Z: 22, A: 48, m: 47.867 * AMUtoKG},
 			{name: "palladium", density: 0, Z: 46, A: 106, m: 106.42 * AMUtoKG},
-			{name: "tritium", density: 0, Z: 1, A: 3, m: 3.016 * AMUtoKG},
+			{name: "tritium", density: 5.67e28, Z: 1, A: 3, m: 3.016 * AMUtoKG},
 			{name: "hydrogen", density: 0.0, Z: 1, A: 1, m: 1.008 * AMUtoKG},
 			{name: "helium3", density: 0.0, Z: 2, A: 3, m: 3.016 * AMUtoKG},
 		},
@@ -103,7 +103,7 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 100000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: []int{}, fusionEnergy: 0.0, enhancement: 0.0}
+		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: []int{}, fusionEnergy: 0.0, enhancement: 0.0}
 	}
 	return particles
 }
@@ -120,13 +120,28 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 	if err != nil {
 		log.Fatal(err)
 	}
+	// load enhancement data
+	enhData, err := LoadCSV("enhancements/all_enh.csv")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	fmt.Print("Initializing lookup table\n")
+	fmt.Print("Initializing scattering tables\n")
 	ltPd := NewLookupTable(scatData, 1, 2)
 	ltTi := NewLookupTable(scatData, 3, 4)
 	ltD := NewLookupTable(scatData, 5, 6)
 	ltTr := NewLookupTable(scatData, 7, 8)
 	//fmt.Print(lt)
+
+	fmt.Print("Initializing enhancement tables\n")
+	//enh110 := NewLookupTable(enhData, 0, 1)
+	//enh125 := NewLookupTable(enhData, 0, 2)
+	//enh300 := NewLookupTable(enhData, 0, 3)
+	//enh600 := NewLookupTable(enhData, 0, 4)
+	//enh1000 := NewLookupTable(enhData, 0, 5)
+	//enh3000 := NewLookupTable(enhData, 0, 6)
+	//enh4400 := NewLookupTable(enhData, 0, 7)
+	enh40400 := NewLookupTable(enhData, 0, 8)
 
 	fusions := 0
 
@@ -142,7 +157,7 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 				// ********* Choose interaction partner and compute center of mass energy ***********
 				interactionAtom := chooseInteractionAtom(total_density, material)
 				eCMKev := interactionAtom.m / (interactionAtom.m + particle.m) * particle.energy * JtoeV / 1000
-				eCM := interactionAtom.m / (interactionAtom.m + particle.m) * particle.energy
+				//eCM := interactionAtom.m / (interactionAtom.m + particle.m) * particle.energy
 
 				//  *********** compute scattering cross section ***********
 				scatteringCS := 0.0
@@ -169,10 +184,10 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 				fue := 0.0
 				if interactionAtom.Z < 3 {
 					fusionCS, reactionType = fusionCrossSection(eCMKev, particle, &interactionAtom)
-					fue = getScreeningEnhancement(particle, &interactionAtom, eCM, 0*eVtoJ)
+					fue = enh40400.InterpolateValue(particle.energy * JtoeV / 1000)
 					particle.enhancement = fue
 					//fmt.Printf("fue: %0.5e\n", fue)
-
+					//fue = 1
 					fusionCS = fue * fusionCS
 				}
 
@@ -242,7 +257,7 @@ func main() {
 	//rand.Seed(time.Now().UnixNano())
 	var wg sync.WaitGroup
 	nParticles := 1_000_000
-	replicas := 1000
+	replicas := 10
 
 	wg.Add(1)
 	particleStack := runSimulation(nParticles, replicas, &wg) // Run the simulation and get the particle stack
