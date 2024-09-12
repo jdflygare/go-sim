@@ -203,9 +203,9 @@ func meanFreePath(scatteringCS float64, fusionCS float64, material *Material, in
 
 func writeParticlesToCSV(particles []*Particle, filename string) error {
 	// Create the original file with all particles
-	if err := saveToFile(particles, filename); err != nil {
-		return err
-	}
+	//if err := saveToFile(particles, filename); err != nil {
+	//	return err
+	//}
 
 	// Filter particles to only include those with fusionEnergy > 0
 	var fusion_particles []*Particle

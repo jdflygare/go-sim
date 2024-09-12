@@ -140,8 +140,8 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 	//enh600 := NewLookupTable(enhData, 0, 4)
 	//enh1000 := NewLookupTable(enhData, 0, 5)
 	//enh3000 := NewLookupTable(enhData, 0, 6)
-	//enh4400 := NewLookupTable(enhData, 0, 7)
-	enh40400 := NewLookupTable(enhData, 0, 8)
+	enh4400 := NewLookupTable(enhData, 0, 7)
+	//enh40400 := NewLookupTable(enhData, 0, 8)
 
 	fusions := 0
 
@@ -151,7 +151,10 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 	for i := 0; i < nParticles; i++ {
 		go func(particle *Particle, id int) {
 			defer particleWg.Done()
-			//fmt.Printf("Goroutine %d started, particle energy %0.5e\n", id, particle.energy*JtoeV/1000) // Print the start of the goroutine
+
+			//track replicas to not duplicate particles
+			internal_replicas := replicas
+
 			for particle.energy > threshold {
 
 				// ********* Choose interaction partner and compute center of mass energy ***********
@@ -184,18 +187,21 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 				fue := 0.0
 				if interactionAtom.Z < 3 {
 					fusionCS, reactionType = fusionCrossSection(eCMKev, particle, &interactionAtom)
-					fue = enh40400.InterpolateValue(particle.energy * JtoeV / 1000)
+					fue = enh4400.InterpolateValue(particle.energy * JtoeV / 1000)
 					particle.enhancement = fue
 					//fmt.Printf("fue: %0.5e\n", fue)
-					//fue = 1
+					fue = 1
 					fusionCS = fue * fusionCS
 				}
 
 				// loop over this X times to boost statistics for fusion events
-				for i := 0; i < replicas; i++ {
+				cs_rat := fusionCS / (fusionCS + scatteringCS)
+
+				for i := 0; i < internal_replicas; i++ {
 					//fmt.Printf("energy: %f, fusion CS: %0.5e\n", particle.energy*JtoeV/1000, fusionCS/mbtom2)
 					// check if fusion or scattering occurs
-					if rand.Float64() < fusionCS/(fusionCS+scatteringCS) && interactionAtom.Z < 3 {
+
+					if rand.Float64() < cs_rat && interactionAtom.Z < 3 {
 						// fusion happened
 						/*for i := range material.atoms {
 							switch material.atoms[i].name {
@@ -211,7 +217,13 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 						fusions += 1
 						particle.fusionReaction = append(particle.fusionReaction, reactionType)
 						particle.fusionEnergy = particle.energy
-						particle.energy = 0.0
+						//kill the replica
+						if internal_replicas > 0 {
+							internal_replicas -= 1
+						} else {
+							particle.energy = 0.0
+						}
+						//particle.energy = 0.0
 					} else {
 						// scattering happened
 						//fmt.Printf("scattering happened\n")
@@ -223,6 +235,7 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 				//material.mutex.Unlock()
 
 				//fmt.Printf("scatCS %.5e, fusCS %.5e\n", scatteringCS, fusionCS)
+
 				// Compute new location and energy
 				meanPath := meanFreePath(scatteringCS, fusionCS, material, &interactionAtom)
 				// compute the step length change
@@ -256,18 +269,18 @@ func main() {
 	start := time.Now()
 	//rand.Seed(time.Now().UnixNano())
 	var wg sync.WaitGroup
-	nParticles := 1_000_000
-	replicas := 10
+	nParticles := 1_000_0000
+	replicas := 1
 
 	wg.Add(1)
 	particleStack := runSimulation(nParticles, replicas, &wg) // Run the simulation and get the particle stack
 
 	wg.Wait()
 	duration := time.Since(start)
-	fmt.Printf("Total simulation time: %s\n", duration)
+	fmt.Printf("Total simulation time: %s,  Total particles: %0.1e\n", duration, float64(nParticles*replicas))
 
 	// Write the particle stack to a CSV file
-	filename := "/Users/josh/Documents/Fusion/py_data/outputs/TiD_range_test_1e-1.csv"
+	filename := "/Users/josh/Documents/Fusion/py_data/outputs/TiTr_1e8_100keV_0eV_1e-1.csv"
 	if err := writeParticlesToCSV(particleStack, filename); err != nil {
 		fmt.Printf("Error writing to CSV: %v\n", err)
 		return
