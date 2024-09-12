@@ -145,37 +145,6 @@ func fusionCrossSection(eCMKev float64, particle *Particle, interactionAtom *Ato
 	return sigmaFus, currentReaction
 }
 
-func getScreeningEnhancement(particle *Particle, interactionAtom *Atom, ECM float64, Ue float64) float64 {
-	// Reduced mass (mu)
-	mu := interactionAtom.m * particle.m / (interactionAtom.m + particle.m)
-
-	// Strong radius position (sr)
-	sr := sro * (math.Pow(float64(particle.A), 1.0/3.0) + math.Pow(float64(interactionAtom.A), 1.0/3.0))
-
-	// Coulomb potential (Vc)
-	Vc := kqqSI * float64(interactionAtom.Z) / sr
-
-	// Gamow energy (Eg)
-	Eg := 2 * mu * math.Pow(speedOfLight, 2.0) * math.Pow(math.Pi*alpha*float64(particle.Z)*float64(interactionAtom.Z), 2.0)
-
-	// Compute the Gamow factors
-	Gcbase := GamowC(Eg, ECM, Vc)
-	//fmt.Printf("Gcbase %f\n", Gcbase)
-
-	Gcenh := GamowC(Eg, ECM+Ue, Vc)
-	//fmt.Printf("GcEnh %f\n", Gcenh)
-
-	// Compute the screening enhancement factor
-	fue := ECM / (ECM + Ue) * math.Exp(Gcbase-Gcenh)
-
-	return fue
-}
-
-func GamowC(Eg float64, ECM float64, Vc float64) float64 {
-	Gc := math.Pow(Eg/ECM, 0.5) * (2 / math.Pi * 1 / math.Cos(math.Sqrt(ECM/Vc)-math.Sqrt(ECM/Vc*(1-ECM/Vc))))
-	return Gc
-}
-
 func scatteringCrossSection(interactionAtom *Atom, energyCM float64) float64 {
 	scatCS := 0.0
 	// energy comes in keV center of mass, and function returns cm^2
@@ -257,6 +226,8 @@ func saveToFile(particles []*Particle, filename string) error {
 				fusionReactionStr += strconv.Itoa(num)
 			}
 		}
+
+		//fmt.Printf("enhancement: %f", particle.enhancement)
 
 		record := []string{
 			strconv.Itoa(i),

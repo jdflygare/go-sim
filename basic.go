@@ -103,18 +103,22 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		particles[i] = &Particle{position: 0.0, energy: 150000.0 * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: []int{}, fusionEnergy: 0.0, enhancement: 0.0}
+		Ek := 80000.0
+		Espread := Ek + (((rand.Float64() * 2) - 1) * (0.05 * Ek))
+		particles[i] = &Particle{position: 0.0, energy: Espread * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: []int{}, fusionEnergy: 0.0, enhancement: 1.0}
 	}
 	return particles
 }
 
-func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle {
+func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) ([]*Particle, []*Particle) {
 	defer wg.Done()
 
 	particleStack := make([]*Particle, nParticles)
+	fusionStack := []*Particle{}
 	material := initializeMaterial()
 	particles := initializeParticles(nParticles)
 	total_density := totalDensity(material)
+	//var fusionStackMutex sync.Mutex
 	// load scattering data and initialize lookup table
 	scatData, err := LoadCSV("scat_results_1e-1.csv")
 	if err != nil {
@@ -178,20 +182,21 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 					scatteringCS = ltTr.InterpolateValue(eCMKev) * 1e-6
 				}
 
-				//fmt.Printf("scatCS: %0.5e", scatteringCS)
-
 				// **************  compute fusion cross section *************
 				//material.mutex.Lock()
 				fusionCS := 0.0
 				reactionType := 0
-				fue := 0.0
+
 				if interactionAtom.Z < 3 {
 					fusionCS, reactionType = fusionCrossSection(eCMKev, particle, &interactionAtom)
-					fue = enh4400.InterpolateValue(particle.energy * JtoeV / 1000)
-					particle.enhancement = fue
+					if particle.energy*JtoeV/1000 <= 100.0 {
+						fue := enh4400.InterpolateValue(particle.energy * JtoeV / 1000)
+						//fue = 1
+						particle.enhancement = fue
+					}
 					//fmt.Printf("fue: %0.5e\n", fue)
-					fue = 1
-					fusionCS = fue * fusionCS
+
+					fusionCS = particle.enhancement * fusionCS
 				}
 
 				// loop over this X times to boost statistics for fusion events
@@ -203,20 +208,15 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 
 					if rand.Float64() < cs_rat && interactionAtom.Z < 3 {
 						// fusion happened
-						/*for i := range material.atoms {
-							switch material.atoms[i].name {
-							case "tritium":
-								material.atoms[i].density += 0.1
-							case "hydrogen":
-								material.atoms[i].density += 0.1
-							case "deuterium":
-								material.atoms[i].density -= 0.1
-							}
-						}*/
-						//fmt.Printf("fusion happened\n")
 						fusions += 1
 						particle.fusionReaction = append(particle.fusionReaction, reactionType)
 						particle.fusionEnergy = particle.energy
+						particleCopy := *particle
+						if particle != nil {
+							fusionStack = append(fusionStack, &particleCopy)
+						}
+
+						//fmt.Printf("Particle energy(keV): %f, position(nm): %0.3e, int.A: %d, eCM(keV): %f, fue: %f\n", particle.energy*JtoeV/1000, particle.position*1e9, interactionAtom.A, eCMKev, particle.enhancement)
 						//kill the replica
 						if internal_replicas > 0 {
 							internal_replicas -= 1
@@ -226,15 +226,10 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 						//particle.energy = 0.0
 					} else {
 						// scattering happened
-						//fmt.Printf("scattering happened\n")
-						//reset fusionreaction to -1
-						//particle.fusionReaction = []int{}
 						particle.scatteringEvents += 1
 					}
 				}
 				//material.mutex.Unlock()
-
-				//fmt.Printf("scatCS %.5e, fusCS %.5e\n", scatteringCS, fusionCS)
 
 				// Compute new location and energy
 				meanPath := meanFreePath(scatteringCS, fusionCS, material, &interactionAtom)
@@ -245,7 +240,7 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 				// Print the particle's state
 				//fmt.Printf("Particle energy(keV): %f, atom: %d, CMenergy(keV): %f, scatCS(mb): %0.3e, fusCS(mb): %0.3e, losses(keV/nm): %f\n", particle.energy*JtoeV/1000, interactionAtom.Z, eCMKev, scatteringCS/mbtom2, fusionCS/mbtom2, losses*JtoeV/1000*1e-9)
 
-				//fmt.Printf("Particle energy(keV): %f, position(nm): %0.3e, int.A: %d, eCM(keV): %f, fue: %f\n", particle.energy*JtoeV/1000, particle.position*1e9, interactionAtom.A, eCMKev, fue)
+				//fmt.Printf("Particle energy(keV): %f, position(nm): %0.3e, int.A: %d, eCM(keV): %f, fue: %f\n", particle.energy*JtoeV/1000, particle.position*1e9, interactionAtom.A, eCMKev, particle.enhancement)
 
 				// Update particle energy and position
 				particle.energy -= losses * stepLength
@@ -261,7 +256,7 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) []*Particle
 	particleWg.Wait()
 	fmt.Printf("fusion events %d\n", fusions)
 
-	return particleStack
+	return particleStack, fusionStack
 }
 
 func main() {
@@ -269,19 +264,19 @@ func main() {
 	start := time.Now()
 	//rand.Seed(time.Now().UnixNano())
 	var wg sync.WaitGroup
-	nParticles := 1_000_0000
-	replicas := 1
+	nParticles := 1_000_000
+	replicas := 1000
 
 	wg.Add(1)
-	particleStack := runSimulation(nParticles, replicas, &wg) // Run the simulation and get the particle stack
+	particleStack, fusionStack := runSimulation(nParticles, replicas, &wg) // Run the simulation and get the particle stack
 
 	wg.Wait()
 	duration := time.Since(start)
-	fmt.Printf("Total simulation time: %s,  Total particles: %0.1e\n", duration, float64(nParticles*replicas))
+	fmt.Printf("Total simulation time: %s,  Total particles: %0.1e, particle stack length: %d\n", duration, float64(nParticles*replicas), len(particleStack))
 
 	// Write the particle stack to a CSV file
-	filename := "/Users/josh/Documents/Fusion/py_data/outputs/TiTr_1e8_100keV_0eV_1e-1.csv"
-	if err := writeParticlesToCSV(particleStack, filename); err != nil {
+	filename := "/Users/josh/Documents/Fusion/py_data/outputs/TiTr_80keV_1mx1000_4400eV_1e-1.csv"
+	if err := writeParticlesToCSV(fusionStack, filename); err != nil {
 		fmt.Printf("Error writing to CSV: %v\n", err)
 		return
 	}
