@@ -103,7 +103,7 @@ func initializeMaterial() *Material {
 func initializeParticles(n int) []*Particle {
 	particles := make([]*Particle, n)
 	for i := range particles {
-		Ek := 80000.0
+		Ek := 100000.0
 		Espread := Ek + (((rand.Float64() * 2) - 1) * (0.05 * Ek))
 		particles[i] = &Particle{position: 0.0, energy: Espread * eVtoJ, Z: 1, A: 2, m: DeuteriumMass, scatteringEvents: 0, fusionReaction: []int{}, fusionEnergy: 0.0, enhancement: 1.0}
 	}
@@ -120,7 +120,7 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) ([]*Particl
 	total_density := totalDensity(material)
 	//var fusionStackMutex sync.Mutex
 	// load scattering data and initialize lookup table
-	scatData, err := LoadCSV("scat_results_1e-1.csv")
+	scatData, err := LoadCSV("scat_results_5e-5_keV.csv")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -142,9 +142,9 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) ([]*Particl
 	//enh125 := NewLookupTable(enhData, 0, 2)
 	//enh300 := NewLookupTable(enhData, 0, 3)
 	//enh600 := NewLookupTable(enhData, 0, 4)
-	//enh1000 := NewLookupTable(enhData, 0, 5)
+	enh1000 := NewLookupTable(enhData, 0, 5)
 	//enh3000 := NewLookupTable(enhData, 0, 6)
-	enh4400 := NewLookupTable(enhData, 0, 7)
+	//enh4400 := NewLookupTable(enhData, 0, 7)
 	//enh40400 := NewLookupTable(enhData, 0, 8)
 
 	fusions := 0
@@ -190,7 +190,9 @@ func runSimulation(nParticles int, replicas int, wg *sync.WaitGroup) ([]*Particl
 				if interactionAtom.Z < 3 {
 					fusionCS, reactionType = fusionCrossSection(eCMKev, particle, &interactionAtom)
 					if particle.energy*JtoeV/1000 <= 100.0 {
-						fue := enh4400.InterpolateValue(particle.energy * JtoeV / 1000)
+						fue := enh1000.InterpolateValue(particle.energy * JtoeV / 1000)
+						// include scattering effects
+						fue = fue * particle.energy / (particle.energy + 1000*eVtoJ)
 						//fue = 1
 						particle.enhancement = fue
 					}
@@ -265,7 +267,7 @@ func main() {
 	//rand.Seed(time.Now().UnixNano())
 	var wg sync.WaitGroup
 	nParticles := 1_000_000
-	replicas := 1000
+	replicas := 10000
 
 	wg.Add(1)
 	particleStack, fusionStack := runSimulation(nParticles, replicas, &wg) // Run the simulation and get the particle stack
@@ -275,7 +277,7 @@ func main() {
 	fmt.Printf("Total simulation time: %s,  Total particles: %0.1e, particle stack length: %d\n", duration, float64(nParticles*replicas), len(particleStack))
 
 	// Write the particle stack to a CSV file
-	filename := "/Users/josh/Documents/Fusion/py_data/outputs/TiTr_80keV_1mx1000_4400eV_1e-1.csv"
+	filename := "/Users/josh/Documents/Fusion/py_data/outputs/TiTr_100keV_1000eV_1mx10000.csv"
 	if err := writeParticlesToCSV(fusionStack, filename); err != nil {
 		fmt.Printf("Error writing to CSV: %v\n", err)
 		return
